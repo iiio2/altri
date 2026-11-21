@@ -1,0 +1,3818 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "Altri API",
+  "description": "Weekly leadership-meeting API (Measure \u2192 Commit \u2192 Resolve).\n\n**Auth.** Sign in with `POST /api/v1/auth/login`; the session travels as an HttpOnly cookie or a Bearer token.\nEvery role and team rule is enforced here: a team the caller can't read is a 403 (even for unknown ids), and\nObservers get a 403 on every write.\n\n**Time.** Timestamps are UTC. Weeks are named by their Monday and run Monday-Sunday in the company time zone;\ndue dates are company-time calendar dates. \"Now\" comes from `APP_NOW`.\n\n**Live updates.** `WS /api/v1/teams/{team_id}/live` pushes meeting state and \"refetch\" signals; see `live/router.py`.\n\n**Errors.** `{\"detail\": ...}`. 401 no session, 403 no access / wrong role, 404 unknown item inside a readable\nteam, 409 the item's current state forbids the action (or a stale `expected_version`), 422 invalid input.\n",
+  "version": "0.2.0"
+ },
+ "paths": {
+  "/api/v1/auth/users": {
+   "get": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "List sign-in accounts (seeded user switcher)",
+    "description": "Public on purpose: the spec replaces sign-up with a seeded user switcher.",
+    "operationId": "list_users_api_v1_auth_users_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/UserOut"
+         },
+         "type": "array",
+         "title": "Response List Users Api V1 Auth Users Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/auth/login": {
+   "post": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Sign in as a seeded user",
+    "description": "Passwordless sign-in by email (spec: \"a seeded user switcher or simple login is enough\").\n\nIssues a new session every time (no fixation) and revokes the caller's previous one, if any.",
+    "operationId": "login_api_v1_auth_login_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LoginIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/LoginOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "No user with that email"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/auth/logout": {
+   "post": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Sign out (revokes the session)",
+    "operationId": "logout_api_v1_auth_logout_post",
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     }
+    },
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/auth/me": {
+   "get": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Current user and their teams",
+    "operationId": "me_api_v1_auth_me_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MeOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     }
+    },
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/teams": {
+   "get": {
+    "tags": [
+     "teams"
+    ],
+    "summary": "Teams the current user can open",
+    "operationId": "list_teams_api_v1_teams_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/TeamOut"
+         },
+         "type": "array",
+         "title": "Response List Teams Api V1 Teams Get"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     }
+    },
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/teams/{team_id}": {
+   "get": {
+    "tags": [
+     "teams"
+    ],
+    "summary": "One team with its members",
+    "operationId": "get_team_api_v1_teams__team_id__get",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TeamDetailOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/scorecard": {
+   "get": {
+    "tags": [
+     "scorecard"
+    ],
+    "summary": "Measurables by week with statuses",
+    "operationId": "get_scorecard_api_v1_teams__team_id__scorecard_get",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     },
+     {
+      "name": "weeks",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 52,
+       "minimum": 1,
+       "description": "How many weeks, ending with the current one",
+       "default": 13,
+       "title": "Weeks"
+      },
+      "description": "How many weeks, ending with the current one"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ScorecardOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such Measurable in this team"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/measurables/{measurable_id}/scores/{week_start}": {
+   "put": {
+    "tags": [
+     "scorecard"
+    ],
+    "summary": "Enter, change or clear a score",
+    "description": "Last save wins by default. Pass `expected_version` to get a 409 instead of overwriting a newer value.",
+    "operationId": "put_score_api_v1_teams__team_id__measurables__measurable_id__scores__week_start__put",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "measurable_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Measurable id, e.g. `m1`",
+       "title": "Measurable Id"
+      },
+      "description": "Measurable id, e.g. `m1`"
+     },
+     {
+      "name": "week_start",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date",
+       "description": "Week start: the Monday (company time), e.g. `2026-11-02`",
+       "title": "Week Start"
+      },
+      "description": "Week start: the Monday (company time), e.g. `2026-11-02`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ScoreIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CellOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such Measurable in this team"
+     },
+     "409": {
+      "description": "`expected_version` given and the score changed since (body has `current_version`)"
+     },
+     "422": {
+      "description": "Not a Monday, a future week, or an invalid value"
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/measurables/{measurable_id}/scores/{week_start}/issue": {
+   "post": {
+    "tags": [
+     "scorecard"
+    ],
+    "summary": "Make it an Issue (idempotent)",
+    "description": "Creates an Issue titled with the Measurable and week, owned by the caller. If an unsolved Issue already\nexists for this Measurable and week, returns it with 200 instead. Safe under concurrent clicks.",
+    "operationId": "make_it_an_issue_api_v1_teams__team_id__measurables__measurable_id__scores__week_start__issue_post",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "measurable_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Measurable id, e.g. `m1`",
+       "title": "Measurable Id"
+      },
+      "description": "Measurable id, e.g. `m1`"
+     },
+     {
+      "name": "week_start",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date",
+       "description": "Week start: the Monday (company time), e.g. `2026-11-02`",
+       "title": "Week Start"
+      },
+      "description": "Week start: the Monday (company time), e.g. `2026-11-02`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IssueOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such Measurable in this team"
+     },
+     "200": {
+      "description": "An unsolved Issue already existed for this cell; it is returned",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IssueOut"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "The cell is not off track"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/issues": {
+   "get": {
+    "tags": [
+     "issues"
+    ],
+    "summary": "List Issues",
+    "operationId": "list_issues_api_v1_teams__team_id__issues_get",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     },
+     {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "open",
+        "solved"
+       ],
+       "type": "string",
+       "description": "`open`: unsolved, in Issue order (priority 5\u21921, none last; oldest first). `solved`: most recently solved first",
+       "default": "open",
+       "title": "Status"
+      },
+      "description": "`open`: unsolved, in Issue order (priority 5\u21921, none last; oldest first). `solved`: most recently solved first"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/IssueOut"
+         },
+         "title": "Response List Issues Api V1 Teams  Team Id  Issues Get"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such Issue in this team"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "issues"
+    ],
+    "summary": "Create an Issue",
+    "description": "The caller becomes the owner.",
+    "operationId": "create_issue_api_v1_teams__team_id__issues_post",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IssueCreateIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IssueOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such Issue in this team"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/issues/{issue_id}": {
+   "get": {
+    "tags": [
+     "issues"
+    ],
+    "summary": "One Issue",
+    "operationId": "get_issue_api_v1_teams__team_id__issues__issue_id__get",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "issue_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Issue id, e.g. `i1`",
+       "title": "Issue Id"
+      },
+      "description": "Issue id, e.g. `i1`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IssueOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such Issue in this team"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "patch": {
+    "tags": [
+     "issues"
+    ],
+    "summary": "Set priority",
+    "operationId": "update_issue_api_v1_teams__team_id__issues__issue_id__patch",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "issue_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Issue id, e.g. `i1`",
+       "title": "Issue Id"
+      },
+      "description": "Issue id, e.g. `i1`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IssueUpdateIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IssueOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such Issue in this team"
+     },
+     "409": {
+      "description": "Already solved, or `expected_version` is stale"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/issues/{issue_id}/solve": {
+   "post": {
+    "tags": [
+     "issues"
+    ],
+    "summary": "Solve with a note",
+    "description": "Records the solve time and note. Solving while the team's meeting runs links the Issue to that meeting\n(it then appears in the meeting summary).",
+    "operationId": "solve_issue_api_v1_teams__team_id__issues__issue_id__solve_post",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "issue_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Issue id, e.g. `i1`",
+       "title": "Issue Id"
+      },
+      "description": "Issue id, e.g. `i1`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IssueSolveIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IssueOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such Issue in this team"
+     },
+     "409": {
+      "description": "Already solved"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/issues/{issue_id}/todos": {
+   "post": {
+    "tags": [
+     "issues"
+    ],
+    "summary": "Add a follow-up To-Do",
+    "description": "Creates a To-Do linked to the Issue, due 7 days from today (company time). The owner must be one of\nthe team's Admins or Team Members (see `owner_candidates` on GET /teams/{team_id}).",
+    "operationId": "add_todo_api_v1_teams__team_id__issues__issue_id__todos_post",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "issue_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Issue id, e.g. `i1`",
+       "title": "Issue Id"
+      },
+      "description": "Issue id, e.g. `i1`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IssueTodoIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TodoOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such Issue in this team"
+     },
+     "422": {
+      "description": "Invalid title, or the owner isn't one of the team's owners"
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/todos": {
+   "get": {
+    "tags": [
+     "todos"
+    ],
+    "summary": "To-Dos and last closed week's completion",
+    "description": "Ordered by due date. Each To-Do carries an `overdue` flag computed for today in company time.",
+    "operationId": "list_todos_api_v1_teams__team_id__todos_get",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     },
+     {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "all",
+        "open",
+        "done"
+       ],
+       "type": "string",
+       "description": "Filter by done state",
+       "default": "all",
+       "title": "Status"
+      },
+      "description": "Filter by done state"
+     },
+     {
+      "name": "meeting_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Only To-Dos created during this meeting",
+       "title": "Meeting Id"
+      },
+      "description": "Only To-Dos created during this meeting"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TodoListOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such To-Do in this team"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/todos/{todo_id}": {
+   "patch": {
+    "tags": [
+     "todos"
+    ],
+    "summary": "Mark done, or undo",
+    "operationId": "update_todo_api_v1_teams__team_id__todos__todo_id__patch",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "todo_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "To-Do id, e.g. `t12`",
+       "title": "Todo Id"
+      },
+      "description": "To-Do id, e.g. `t12`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TodoUpdateIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TodoOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such To-Do in this team"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/todos/{todo_id}/issue": {
+   "post": {
+    "tags": [
+     "todos"
+    ],
+    "summary": "Make an overdue To-Do an Issue (idempotent)",
+    "operationId": "make_it_an_issue_api_v1_teams__team_id__todos__todo_id__issue_post",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "todo_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "To-Do id, e.g. `t12`",
+       "title": "Todo Id"
+      },
+      "description": "To-Do id, e.g. `t12`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IssueOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such To-Do in this team"
+     },
+     "200": {
+      "description": "An unsolved Issue already existed for this To-Do",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IssueOut"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "The To-Do is not overdue"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/rocks": {
+   "get": {
+    "tags": [
+     "rocks"
+    ],
+    "summary": "Rocks for a quarter (read-only)",
+    "operationId": "list_rocks_api_v1_teams__team_id__rocks_get",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     },
+     {
+      "name": "quarter",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^\\d{4}-Q[1-4]$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "e.g. `2026-Q4`; defaults to the current quarter",
+       "title": "Quarter"
+      },
+      "description": "e.g. `2026-Q4`; defaults to the current quarter"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RocksOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/rocks/{rock_id}/issue": {
+   "post": {
+    "tags": [
+     "rocks"
+    ],
+    "summary": "Make an off-track Rock an Issue (idempotent)",
+    "operationId": "make_it_an_issue_api_v1_teams__team_id__rocks__rock_id__issue_post",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "rock_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Rock id, e.g. `r1`",
+       "title": "Rock Id"
+      },
+      "description": "Rock id, e.g. `r1`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IssueOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "200": {
+      "description": "An unsolved Issue already existed for this Rock",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IssueOut"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "No such Rock in this team"
+     },
+     "409": {
+      "description": "The Rock is not off track"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/meetings": {
+   "get": {
+    "tags": [
+     "meetings"
+    ],
+    "summary": "Meetings, newest first",
+    "operationId": "list_meetings_api_v1_teams__team_id__meetings_get",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/MeetingListItemOut"
+         },
+         "title": "Response List Meetings Api V1 Teams  Team Id  Meetings Get"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such meeting in this team"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "meetings"
+    ],
+    "summary": "Start the Level 10 Meeting",
+    "description": "The caller (Admin or Team Member) becomes the facilitator. One active meeting per team.",
+    "operationId": "start_meeting_api_v1_teams__team_id__meetings_post",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MeetingStateOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such meeting in this team"
+     },
+     "409": {
+      "description": "A meeting is already running (body has its `meeting_id`)"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/meetings/active": {
+   "get": {
+    "tags": [
+     "meetings"
+    ],
+    "summary": "The running meeting, or null",
+    "operationId": "get_active_meeting_api_v1_teams__team_id__meetings_active_get",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "anyOf": [
+          {
+           "$ref": "#/components/schemas/MeetingStateOut"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "title": "Response Get Active Meeting Api V1 Teams  Team Id  Meetings Active Get"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such meeting in this team"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/meetings/{meeting_id}": {
+   "get": {
+    "tags": [
+     "meetings"
+    ],
+    "summary": "Meeting state",
+    "description": "Current section, server-owned timer, attendees and ratings. Same payload as the live `meeting` event.",
+    "operationId": "get_meeting_api_v1_teams__team_id__meetings__meeting_id__get",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "meeting_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Meeting id, e.g. `mt1`",
+       "title": "Meeting Id"
+      },
+      "description": "Meeting id, e.g. `mt1`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MeetingStateOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such meeting in this team"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/meetings/{meeting_id}/join": {
+   "post": {
+    "tags": [
+     "meetings"
+    ],
+    "summary": "Join",
+    "description": "Anyone who can read the team can join, Observers included. Idempotent.",
+    "operationId": "join_meeting_api_v1_teams__team_id__meetings__meeting_id__join_post",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "meeting_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Meeting id, e.g. `mt1`",
+       "title": "Meeting Id"
+      },
+      "description": "Meeting id, e.g. `mt1`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MeetingStateOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such meeting in this team"
+     },
+     "409": {
+      "description": "The meeting has ended, or isn't in the right section"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/meetings/{meeting_id}/section": {
+   "put": {
+    "tags": [
+     "meetings"
+    ],
+    "summary": "Move to a section (facilitator)",
+    "description": "Only the facilitator. Naming the target section (rather than \"next\") makes retries and double clicks safe.",
+    "operationId": "set_section_api_v1_teams__team_id__meetings__meeting_id__section_put",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "meeting_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Meeting id, e.g. `mt1`",
+       "title": "Meeting Id"
+      },
+      "description": "Meeting id, e.g. `mt1`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SectionIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MeetingStateOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such meeting in this team"
+     },
+     "409": {
+      "description": "The meeting has ended, or isn't in the right section"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/meetings/{meeting_id}/rating": {
+   "put": {
+    "tags": [
+     "meetings"
+    ],
+    "summary": "Rate 1-10",
+    "description": "Attending Admins and Team Members, during Conclude. Re-rating replaces the earlier rating.",
+    "operationId": "rate_meeting_api_v1_teams__team_id__meetings__meeting_id__rating_put",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "meeting_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Meeting id, e.g. `mt1`",
+       "title": "Meeting Id"
+      },
+      "description": "Meeting id, e.g. `mt1`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RatingIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MeetingStateOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such meeting in this team"
+     },
+     "409": {
+      "description": "The meeting has ended, or isn't in the right section"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/meetings/{meeting_id}/end": {
+   "post": {
+    "tags": [
+     "meetings"
+    ],
+    "summary": "End the meeting (facilitator)",
+    "description": "Only the facilitator, at any time. Returns the summary; live clients get the ended state.",
+    "operationId": "end_meeting_api_v1_teams__team_id__meetings__meeting_id__end_post",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "meeting_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Meeting id, e.g. `mt1`",
+       "title": "Meeting Id"
+      },
+      "description": "Meeting id, e.g. `mt1`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MeetingSummaryOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such meeting in this team"
+     },
+     "409": {
+      "description": "The meeting has ended, or isn't in the right section"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/teams/{team_id}/meetings/{meeting_id}/summary": {
+   "get": {
+    "tags": [
+     "meetings"
+    ],
+    "summary": "Summary of an ended meeting",
+    "description": "Scorecard statuses for the reviewed week, Issues solved and To-Dos created during the meeting,\nattendees and the rating. Works for any ended meeting, seeded ones included.",
+    "operationId": "get_summary_api_v1_teams__team_id__meetings__meeting_id__summary_get",
+    "security": [
+     {
+      "APIKeyCookie": []
+     },
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "meeting_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Meeting id, e.g. `mt1`",
+       "title": "Meeting Id"
+      },
+      "description": "Meeting id, e.g. `mt1`"
+     },
+     {
+      "name": "team_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[A-Za-z0-9_-]{1,64}$",
+       "description": "Team id, e.g. `team_lead`",
+       "title": "Team Id"
+      },
+      "description": "Team id, e.g. `team_lead`"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MeetingSummaryOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing, invalid or expired session"
+     },
+     "403": {
+      "description": "No access to this team, or the action needs a role the user doesn't have"
+     },
+     "404": {
+      "description": "No such meeting in this team"
+     },
+     "409": {
+      "description": "The meeting is still running"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/healthz": {
+   "get": {
+    "tags": [
+     "ops"
+    ],
+    "summary": "Liveness probe",
+    "operationId": "healthz_healthz_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": {
+          "type": "string"
+         },
+         "type": "object",
+         "title": "Response Healthz Healthz Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "AgendaItemOut": {
+    "properties": {
+     "section": {
+      "$ref": "#/components/schemas/MeetingSection"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "duration_seconds": {
+      "type": "integer",
+      "title": "Duration Seconds"
+     }
+    },
+    "type": "object",
+    "required": [
+     "section",
+     "label",
+     "duration_seconds"
+    ],
+    "title": "AgendaItemOut"
+   },
+   "AttendeeOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "role": {
+      "$ref": "#/components/schemas/Role"
+     },
+     "joined_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Joined At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "role",
+     "joined_at"
+    ],
+    "title": "AttendeeOut"
+   },
+   "CellOut": {
+    "properties": {
+     "measurable_id": {
+      "type": "string",
+      "title": "Measurable Id"
+     },
+     "week_start": {
+      "type": "string",
+      "format": "date",
+      "title": "Week Start"
+     },
+     "value": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value"
+     },
+     "status": {
+      "$ref": "#/components/schemas/ScoreStatus"
+     },
+     "version": {
+      "type": "integer",
+      "title": "Version",
+      "description": "0 when there is no score yet. Echo as `expected_version` for lost-update checks"
+     },
+     "open_issue_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Open Issue Id",
+      "description": "The unsolved Issue raised from this cell, if any"
+     }
+    },
+    "type": "object",
+    "required": [
+     "measurable_id",
+     "week_start",
+     "value",
+     "status",
+     "version",
+     "open_issue_id"
+    ],
+    "title": "CellOut"
+   },
+   "CompletionOut": {
+    "properties": {
+     "week_start": {
+      "type": "string",
+      "format": "date",
+      "title": "Week Start"
+     },
+     "due": {
+      "type": "integer",
+      "title": "Due"
+     },
+     "done": {
+      "type": "integer",
+      "title": "Done",
+      "description": "Of those due, how many were done by the end of the week"
+     },
+     "rate_percent": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rate Percent",
+      "description": "Whole percent, half up; null when nothing was due"
+     },
+     "meets_target": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Meets Target",
+      "description": "Exact ratio >= 90%; null when nothing was due"
+     },
+     "target_percent": {
+      "type": "integer",
+      "title": "Target Percent",
+      "default": 90
+     }
+    },
+    "type": "object",
+    "required": [
+     "week_start",
+     "due",
+     "done",
+     "rate_percent",
+     "meets_target"
+    ],
+    "title": "CompletionOut"
+   },
+   "GoalOut": {
+    "properties": {
+     "type": {
+      "$ref": "#/components/schemas/GoalType"
+     },
+     "value": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value",
+      "description": "Target for at_least / at_most / exactly"
+     },
+     "min": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Min",
+      "description": "Lower bound for between (inclusive)"
+     },
+     "max": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Max",
+      "description": "Upper bound for between (inclusive)"
+     }
+    },
+    "type": "object",
+    "required": [
+     "type",
+     "value",
+     "min",
+     "max"
+    ],
+    "title": "GoalOut"
+   },
+   "GoalType": {
+    "type": "string",
+    "enum": [
+     "at_least",
+     "at_most",
+     "between",
+     "exactly"
+    ],
+    "title": "GoalType"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "type": "array",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "title": "HTTPValidationError"
+   },
+   "IssueCreateIn": {
+    "properties": {
+     "title": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Title"
+     },
+     "priority": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 5.0,
+        "minimum": 1.0,
+        "description": "5 is most urgent"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Priority"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "title"
+    ],
+    "title": "IssueCreateIn"
+   },
+   "IssueOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "team_id": {
+      "type": "string",
+      "title": "Team Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "owner": {
+      "$ref": "#/components/schemas/UserRef"
+     },
+     "priority": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Priority"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     },
+     "solved_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Solved At"
+     },
+     "resolution_note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Resolution Note"
+     },
+     "solved_in_meeting_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Solved In Meeting Id"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "oneOf": [
+         {
+          "$ref": "#/components/schemas/ScoreSourceOut"
+         },
+         {
+          "$ref": "#/components/schemas/RockSourceOut"
+         },
+         {
+          "$ref": "#/components/schemas/TodoSourceOut"
+         }
+        ],
+        "discriminator": {
+         "propertyName": "kind",
+         "mapping": {
+          "rock": "#/components/schemas/RockSourceOut",
+          "score": "#/components/schemas/ScoreSourceOut",
+          "todo": "#/components/schemas/TodoSourceOut"
+         }
+        }
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source",
+      "description": "What the Issue was raised from; null when created directly"
+     },
+     "version": {
+      "type": "integer",
+      "title": "Version",
+      "description": "Send back as `expected_version` to refuse overwriting someone else's change"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "team_id",
+     "title",
+     "owner",
+     "priority",
+     "created_at",
+     "solved_at",
+     "resolution_note",
+     "solved_in_meeting_id",
+     "source",
+     "version"
+    ],
+    "title": "IssueOut"
+   },
+   "IssueRef": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "title"
+    ],
+    "title": "IssueRef"
+   },
+   "IssueSolveIn": {
+    "properties": {
+     "resolution_note": {
+      "type": "string",
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Resolution Note"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "resolution_note"
+    ],
+    "title": "IssueSolveIn"
+   },
+   "IssueTodoIn": {
+    "properties": {
+     "title": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Title"
+     },
+     "owner_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$",
+      "title": "Owner Id",
+      "description": "One of the team's `owner_candidates`"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "title",
+     "owner_id"
+    ],
+    "title": "IssueTodoIn"
+   },
+   "IssueUpdateIn": {
+    "properties": {
+     "priority": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 5.0,
+        "minimum": 1.0,
+        "description": "5 is most urgent"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Priority",
+      "description": "1-5, or null to clear"
+     },
+     "expected_version": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "minimum": 1.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expected Version",
+      "description": "Optional lost-update guard: 409 if the Issue's version differs"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "priority"
+    ],
+    "title": "IssueUpdateIn"
+   },
+   "LoginIn": {
+    "properties": {
+     "email": {
+      "type": "string",
+      "maxLength": 254,
+      "minLength": 3,
+      "title": "Email"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "email"
+    ],
+    "title": "LoginIn"
+   },
+   "LoginOut": {
+    "properties": {
+     "user": {
+      "$ref": "#/components/schemas/UserOut"
+     },
+     "teams": {
+      "items": {
+       "$ref": "#/components/schemas/TeamOut"
+      },
+      "type": "array",
+      "title": "Teams",
+      "description": "Teams the user can open: every team for Admins, own teams otherwise"
+     },
+     "can_write": {
+      "type": "boolean",
+      "title": "Can Write",
+      "description": "False for Observers. Informational only; the server enforces it"
+     },
+     "access_token": {
+      "type": "string",
+      "title": "Access Token",
+      "description": "Also set as an HttpOnly cookie. Use as `Authorization: Bearer <token>`"
+     },
+     "token_type": {
+      "type": "string",
+      "const": "bearer",
+      "title": "Token Type",
+      "default": "bearer"
+     },
+     "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Expires At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "user",
+     "teams",
+     "can_write",
+     "access_token",
+     "expires_at"
+    ],
+    "title": "LoginOut"
+   },
+   "MeOut": {
+    "properties": {
+     "user": {
+      "$ref": "#/components/schemas/UserOut"
+     },
+     "teams": {
+      "items": {
+       "$ref": "#/components/schemas/TeamOut"
+      },
+      "type": "array",
+      "title": "Teams",
+      "description": "Teams the user can open: every team for Admins, own teams otherwise"
+     },
+     "can_write": {
+      "type": "boolean",
+      "title": "Can Write",
+      "description": "False for Observers. Informational only; the server enforces it"
+     }
+    },
+    "type": "object",
+    "required": [
+     "user",
+     "teams",
+     "can_write"
+    ],
+    "title": "MeOut"
+   },
+   "MeasurableRowOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "unit": {
+      "type": "string",
+      "title": "Unit"
+     },
+     "owner": {
+      "$ref": "#/components/schemas/UserRef"
+     },
+     "goal": {
+      "$ref": "#/components/schemas/GoalOut"
+     },
+     "cells": {
+      "items": {
+       "$ref": "#/components/schemas/CellOut"
+      },
+      "type": "array",
+      "title": "Cells",
+      "description": "One per week in `weeks`, same order"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "unit",
+     "owner",
+     "goal",
+     "cells"
+    ],
+    "title": "MeasurableRowOut"
+   },
+   "MeetingListItemOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "active",
+       "ended"
+      ],
+      "title": "Status"
+     },
+     "facilitator": {
+      "$ref": "#/components/schemas/UserRef"
+     },
+     "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Started At"
+     },
+     "ended_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ended At"
+     },
+     "average_rating": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Average Rating"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "status",
+     "facilitator",
+     "started_at",
+     "ended_at",
+     "average_rating"
+    ],
+    "title": "MeetingListItemOut"
+   },
+   "MeetingSection": {
+    "type": "string",
+    "enum": [
+     "scorecard",
+     "ids",
+     "conclude"
+    ],
+    "title": "MeetingSection"
+   },
+   "MeetingStateOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "team_id": {
+      "type": "string",
+      "title": "Team Id"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "active",
+       "ended"
+      ],
+      "title": "Status"
+     },
+     "facilitator": {
+      "$ref": "#/components/schemas/UserRef"
+     },
+     "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Started At"
+     },
+     "ended_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ended At"
+     },
+     "scorecard_week": {
+      "type": "string",
+      "format": "date",
+      "title": "Scorecard Week",
+      "description": "The week the Scorecard section reviews (last closed week at start)"
+     },
+     "agenda": {
+      "items": {
+       "$ref": "#/components/schemas/AgendaItemOut"
+      },
+      "type": "array",
+      "title": "Agenda"
+     },
+     "section": {
+      "$ref": "#/components/schemas/MeetingSection"
+     },
+     "section_started_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Section Started At"
+     },
+     "section_duration_seconds": {
+      "type": "integer",
+      "title": "Section Duration Seconds"
+     },
+     "section_elapsed_seconds": {
+      "type": "integer",
+      "title": "Section Elapsed Seconds",
+      "description": "As of `server_now` (or of the end, once ended)"
+     },
+     "over_time": {
+      "type": "boolean",
+      "title": "Over Time",
+      "description": "The section ran past its time box. Sections never advance on their own"
+     },
+     "server_now": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Server Now"
+     },
+     "attendees": {
+      "items": {
+       "$ref": "#/components/schemas/AttendeeOut"
+      },
+      "type": "array",
+      "title": "Attendees"
+     },
+     "ratings": {
+      "items": {
+       "$ref": "#/components/schemas/RatingOut"
+      },
+      "type": "array",
+      "title": "Ratings"
+     },
+     "average_rating": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Average Rating",
+      "description": "One decimal, half up; null when no one rated"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "team_id",
+     "status",
+     "facilitator",
+     "started_at",
+     "ended_at",
+     "scorecard_week",
+     "agenda",
+     "section",
+     "section_started_at",
+     "section_duration_seconds",
+     "section_elapsed_seconds",
+     "over_time",
+     "server_now",
+     "attendees",
+     "ratings",
+     "average_rating"
+    ],
+    "title": "MeetingStateOut",
+    "description": "Everything a client needs to render the meeting. Pushed over the live socket on every change.\n\nThe server owns the timer: clients display `section_elapsed_seconds` advanced by their local clock from the\nmoment they received `server_now`, so all browsers agree regardless of their own clock skew."
+   },
+   "MeetingSummaryOut": {
+    "properties": {
+     "meeting_id": {
+      "type": "string",
+      "title": "Meeting Id"
+     },
+     "team_id": {
+      "type": "string",
+      "title": "Team Id"
+     },
+     "facilitator": {
+      "$ref": "#/components/schemas/UserRef"
+     },
+     "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Started At"
+     },
+     "ended_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Ended At"
+     },
+     "scorecard_week": {
+      "type": "string",
+      "format": "date",
+      "title": "Scorecard Week"
+     },
+     "measurables": {
+      "items": {
+       "$ref": "#/components/schemas/SummaryMeasurableOut"
+      },
+      "type": "array",
+      "title": "Measurables",
+      "description": "Statuses for `scorecard_week`"
+     },
+     "issues_solved": {
+      "items": {
+       "$ref": "#/components/schemas/SummaryIssueOut"
+      },
+      "type": "array",
+      "title": "Issues Solved"
+     },
+     "todos_created": {
+      "items": {
+       "$ref": "#/components/schemas/SummaryTodoOut"
+      },
+      "type": "array",
+      "title": "Todos Created"
+     },
+     "attendees": {
+      "items": {
+       "$ref": "#/components/schemas/UserWithRole"
+      },
+      "type": "array",
+      "title": "Attendees"
+     },
+     "ratings": {
+      "items": {
+       "$ref": "#/components/schemas/RatingOut"
+      },
+      "type": "array",
+      "title": "Ratings"
+     },
+     "average_rating": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Average Rating"
+     }
+    },
+    "type": "object",
+    "required": [
+     "meeting_id",
+     "team_id",
+     "facilitator",
+     "started_at",
+     "ended_at",
+     "scorecard_week",
+     "measurables",
+     "issues_solved",
+     "todos_created",
+     "attendees",
+     "ratings",
+     "average_rating"
+    ],
+    "title": "MeetingSummaryOut"
+   },
+   "MilestoneOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "due_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Due Date"
+     },
+     "done": {
+      "type": "boolean",
+      "title": "Done"
+     },
+     "past_due": {
+      "type": "boolean",
+      "title": "Past Due",
+      "description": "Not done and due before today. Due today is not past due"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "title",
+     "due_date",
+     "done",
+     "past_due"
+    ],
+    "title": "MilestoneOut"
+   },
+   "RatingIn": {
+    "properties": {
+     "rating": {
+      "type": "integer",
+      "maximum": 10.0,
+      "minimum": 1.0,
+      "title": "Rating"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "rating"
+    ],
+    "title": "RatingIn"
+   },
+   "RatingOut": {
+    "properties": {
+     "user_id": {
+      "type": "string",
+      "title": "User Id"
+     },
+     "rating": {
+      "type": "integer",
+      "title": "Rating"
+     }
+    },
+    "type": "object",
+    "required": [
+     "user_id",
+     "rating"
+    ],
+    "title": "RatingOut"
+   },
+   "RockOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "owner": {
+      "$ref": "#/components/schemas/UserRef"
+     },
+     "quarter": {
+      "type": "string",
+      "title": "Quarter"
+     },
+     "status": {
+      "$ref": "#/components/schemas/RockStatus",
+      "description": "Computed: seeded status, or off_track if a Milestone is past due"
+     },
+     "seeded_status": {
+      "$ref": "#/components/schemas/RockStatus"
+     },
+     "progress_percent": {
+      "type": "integer",
+      "title": "Progress Percent"
+     },
+     "milestones": {
+      "items": {
+       "$ref": "#/components/schemas/MilestoneOut"
+      },
+      "type": "array",
+      "title": "Milestones"
+     },
+     "open_issue_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Open Issue Id",
+      "description": "Unsolved Issue raised from this Rock, if any"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "title",
+     "owner",
+     "quarter",
+     "status",
+     "seeded_status",
+     "progress_percent",
+     "milestones",
+     "open_issue_id"
+    ],
+    "title": "RockOut"
+   },
+   "RockSourceOut": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "const": "rock",
+      "title": "Kind",
+      "default": "rock"
+     },
+     "rock_id": {
+      "type": "string",
+      "title": "Rock Id"
+     },
+     "rock_title": {
+      "type": "string",
+      "title": "Rock Title"
+     }
+    },
+    "type": "object",
+    "required": [
+     "rock_id",
+     "rock_title"
+    ],
+    "title": "RockSourceOut"
+   },
+   "RockStatus": {
+    "type": "string",
+    "enum": [
+     "on_track",
+     "off_track",
+     "complete"
+    ],
+    "title": "RockStatus"
+   },
+   "RocksOut": {
+    "properties": {
+     "quarter": {
+      "type": "string",
+      "title": "Quarter"
+     },
+     "rocks": {
+      "items": {
+       "$ref": "#/components/schemas/RockOut"
+      },
+      "type": "array",
+      "title": "Rocks"
+     }
+    },
+    "type": "object",
+    "required": [
+     "quarter",
+     "rocks"
+    ],
+    "title": "RocksOut"
+   },
+   "Role": {
+    "type": "string",
+    "enum": [
+     "admin",
+     "team_member",
+     "observer"
+    ],
+    "title": "Role"
+   },
+   "ScoreIn": {
+    "properties": {
+     "value": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value",
+      "description": "null clears the score"
+     },
+     "expected_version": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expected Version",
+      "description": "Optional lost-update guard: the `version` you edited (0 = there was no score). Omit for last-save-wins"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "value"
+    ],
+    "title": "ScoreIn"
+   },
+   "ScoreSourceOut": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "const": "score",
+      "title": "Kind",
+      "default": "score"
+     },
+     "measurable_id": {
+      "type": "string",
+      "title": "Measurable Id"
+     },
+     "measurable_name": {
+      "type": "string",
+      "title": "Measurable Name"
+     },
+     "week_start": {
+      "type": "string",
+      "format": "date",
+      "title": "Week Start"
+     }
+    },
+    "type": "object",
+    "required": [
+     "measurable_id",
+     "measurable_name",
+     "week_start"
+    ],
+    "title": "ScoreSourceOut"
+   },
+   "ScoreStatus": {
+    "type": "string",
+    "enum": [
+     "on_track",
+     "off_track",
+     "pending"
+    ],
+    "title": "ScoreStatus"
+   },
+   "ScorecardOut": {
+    "properties": {
+     "current_week": {
+      "type": "string",
+      "format": "date",
+      "title": "Current Week"
+     },
+     "last_closed_week": {
+      "type": "string",
+      "format": "date",
+      "title": "Last Closed Week"
+     },
+     "weeks": {
+      "items": {
+       "type": "string",
+       "format": "date"
+      },
+      "type": "array",
+      "title": "Weeks",
+      "description": "Week starts (Mondays, company time), oldest first, ending with the current week"
+     },
+     "measurables": {
+      "items": {
+       "$ref": "#/components/schemas/MeasurableRowOut"
+      },
+      "type": "array",
+      "title": "Measurables"
+     }
+    },
+    "type": "object",
+    "required": [
+     "current_week",
+     "last_closed_week",
+     "weeks",
+     "measurables"
+    ],
+    "title": "ScorecardOut"
+   },
+   "SectionIn": {
+    "properties": {
+     "section": {
+      "$ref": "#/components/schemas/MeetingSection",
+      "description": "Section to move to. Moving to the current section is a no-op"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "section"
+    ],
+    "title": "SectionIn"
+   },
+   "SummaryIssueOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "owner": {
+      "$ref": "#/components/schemas/UserRef"
+     },
+     "solved_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Solved At"
+     },
+     "resolution_note": {
+      "type": "string",
+      "title": "Resolution Note"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "title",
+     "owner",
+     "solved_at",
+     "resolution_note"
+    ],
+    "title": "SummaryIssueOut"
+   },
+   "SummaryMeasurableOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "unit": {
+      "type": "string",
+      "title": "Unit"
+     },
+     "owner": {
+      "$ref": "#/components/schemas/UserRef"
+     },
+     "goal": {
+      "$ref": "#/components/schemas/GoalOut"
+     },
+     "value": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value"
+     },
+     "status": {
+      "$ref": "#/components/schemas/ScoreStatus"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "unit",
+     "owner",
+     "goal",
+     "value",
+     "status"
+    ],
+    "title": "SummaryMeasurableOut"
+   },
+   "SummaryTodoOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "owner": {
+      "$ref": "#/components/schemas/UserRef"
+     },
+     "due_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Due Date"
+     },
+     "source_issue_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Issue Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "title",
+     "owner",
+     "due_date",
+     "source_issue_id"
+    ],
+    "title": "SummaryTodoOut"
+   },
+   "TeamDetailOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "timezone": {
+      "type": "string",
+      "title": "Timezone",
+      "description": "Company time zone; weeks run Monday-Sunday in it"
+     },
+     "today": {
+      "type": "string",
+      "title": "Today",
+      "description": "Today's date in company time (from APP_NOW)"
+     },
+     "current_week": {
+      "type": "string",
+      "title": "Current Week"
+     },
+     "last_closed_week": {
+      "type": "string",
+      "title": "Last Closed Week"
+     },
+     "current_quarter": {
+      "type": "string",
+      "title": "Current Quarter"
+     },
+     "members": {
+      "items": {
+       "$ref": "#/components/schemas/UserOut"
+      },
+      "type": "array",
+      "title": "Members"
+     },
+     "owner_candidates": {
+      "items": {
+       "$ref": "#/components/schemas/UserOut"
+      },
+      "type": "array",
+      "title": "Owner Candidates",
+      "description": "Who can own To-Dos here: the team's Team Members plus Admins. Observers never own anything"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "timezone",
+     "today",
+     "current_week",
+     "last_closed_week",
+     "current_quarter",
+     "members",
+     "owner_candidates"
+    ],
+    "title": "TeamDetailOut"
+   },
+   "TeamOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name"
+    ],
+    "title": "TeamOut"
+   },
+   "TodoListOut": {
+    "properties": {
+     "todos": {
+      "items": {
+       "$ref": "#/components/schemas/TodoOut"
+      },
+      "type": "array",
+      "title": "Todos"
+     },
+     "last_closed_week": {
+      "$ref": "#/components/schemas/CompletionOut",
+      "description": "To-Do completion rate for the last closed week"
+     }
+    },
+    "type": "object",
+    "required": [
+     "todos",
+     "last_closed_week"
+    ],
+    "title": "TodoListOut"
+   },
+   "TodoOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "team_id": {
+      "type": "string",
+      "title": "Team Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "owner": {
+      "$ref": "#/components/schemas/UserRef"
+     },
+     "due_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Due Date",
+      "description": "Calendar date in company time"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     },
+     "done_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Done At"
+     },
+     "overdue": {
+      "type": "boolean",
+      "title": "Overdue",
+      "description": "Not done and due before today (company time)"
+     },
+     "source_issue": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/IssueRef"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "created_in_meeting_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Created In Meeting Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "team_id",
+     "title",
+     "owner",
+     "due_date",
+     "created_at",
+     "done_at",
+     "overdue",
+     "source_issue",
+     "created_in_meeting_id"
+    ],
+    "title": "TodoOut"
+   },
+   "TodoSourceOut": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "const": "todo",
+      "title": "Kind",
+      "default": "todo"
+     },
+     "todo_id": {
+      "type": "string",
+      "title": "Todo Id"
+     },
+     "todo_title": {
+      "type": "string",
+      "title": "Todo Title"
+     }
+    },
+    "type": "object",
+    "required": [
+     "todo_id",
+     "todo_title"
+    ],
+    "title": "TodoSourceOut"
+   },
+   "TodoUpdateIn": {
+    "properties": {
+     "done": {
+      "type": "boolean",
+      "title": "Done",
+      "description": "true marks done (keeps the first done time); false undoes it"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "done"
+    ],
+    "title": "TodoUpdateIn"
+   },
+   "UserOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "email": {
+      "type": "string",
+      "title": "Email"
+     },
+     "role": {
+      "$ref": "#/components/schemas/Role"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "email",
+     "role"
+    ],
+    "title": "UserOut"
+   },
+   "UserRef": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name"
+    ],
+    "title": "UserRef"
+   },
+   "UserWithRole": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "role": {
+      "$ref": "#/components/schemas/Role"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "role"
+    ],
+    "title": "UserWithRole"
+   },
+   "ValidationError": {
+    "properties": {
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Location"
+     },
+     "msg": {
+      "type": "string",
+      "title": "Message"
+     },
+     "type": {
+      "type": "string",
+      "title": "Error Type"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "ctx": {
+      "type": "object",
+      "title": "Context"
+     }
+    },
+    "type": "object",
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError"
+   }
+  },
+  "securitySchemes": {
+   "APIKeyCookie": {
+    "type": "apiKey",
+    "description": "Set by POST /auth/login",
+    "in": "cookie",
+    "name": "altri_session"
+   },
+   "HTTPBearer": {
+    "type": "http",
+    "description": "`access_token` from POST /auth/login",
+    "scheme": "bearer"
+   }
+  }
+ }
+}
