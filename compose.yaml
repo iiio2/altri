@@ -1,0 +1,70 @@
+# Whole stack with seed data: docker compose up --build  →  http://localhost:3000
+# The setup step (migrations + idempotent seed) runs on every `up`; it keeps edits made in the app.
+# Back to a fresh seed: docker compose run --rm setup python -m altri_api.seed --reset
+
+x-api-env: &api-env
+  DATABASE_URL: postgresql://altri:altri@db:5432/altri
+  APP_NOW: ${APP_NOW:-2026-11-11T15:00:00Z}
+  APP_CLOCK: ${APP_CLOCK:-ticking}
+  CORS_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000"]'
+  SESSION_COOKIE_SECURE: "false"
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: altri
+      POSTGRES_PASSWORD: altri
+      POSTGRES_DB: altri
+    ports:
+      # Host access for local tooling, e.g. fast API tests:
+      # TEST_DATABASE_URL=postgresql://altri:altri@localhost:5432/altri_test pnpm test:api
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U altri -d altri"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  setup:
+    build: &api-build
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: altri-api
+    environment: *api-env
+    command: ["sh", "-c", "alembic upgrade head && python -m altri_api.seed"]
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: *api-build
+    image: altri-api
+    environment: *api-env
+    ports:
+      # Published because the browser opens the live WebSocket to <page host>:8000 directly.
+      - "8000:8000"
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        API_URL: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  db-data:
