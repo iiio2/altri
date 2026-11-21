@@ -13,5 +13,5 @@
     "db:migrate": "pnpm --filter api migrate",
     "db:seed": "pnpm --filter api seed"
   },
-  "packageManager": "pnpm@11.0.9"
+  "packageManager": "pnpm@12.21.0"
 }
