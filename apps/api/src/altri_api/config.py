@@ -3,6 +3,7 @@
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import AwareDatetime, Field, field_validator
@@ -20,7 +21,12 @@ class Settings(BaseSettings):
     database_url: str
     # The app's notion of "now". Never read the system clock for business logic.
     app_now: AwareDatetime = Field(default=datetime.fromisoformat("2026-11-11T15:00:00Z"))
+    # "ticking": APP_NOW + time since process start (meeting timers move). "frozen": exactly APP_NOW.
+    app_clock: Literal["ticking", "frozen"] = "ticking"
     company_timezone: str = "America/Chicago"
+
+    # Browser origins allowed to call the API with credentials (REST via CORS, and the WebSocket Origin check).
+    cors_origins: list[str] = Field(default=["http://localhost:3000", "http://127.0.0.1:3000"])
 
     session_cookie_name: str = "altri_session"
     session_ttl_hours: int = Field(default=24 * 7, gt=0)

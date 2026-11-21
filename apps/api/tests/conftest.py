@@ -3,7 +3,10 @@
 Database: a dedicated database (TEST_DATABASE_URL, or DATABASE_URL's database name + `_test`).
 It is rebuilt from migrations and seed.json once per run, so tests never touch dev data.
 
-Clock: APP_NOW is pinned to the seed's "now". Tests move it with the `set_now` fixture.
+Clock: APP_CLOCK=frozen and APP_NOW pinned to the seed's "now". Tests move it with the `set_now` fixture.
+
+Data: the seed is loaded once. Tests that change domain data use the `fresh_data` fixture, which restores the
+freshly seeded state afterwards, so every test sees the seed regardless of order.
 """
 
 import os
@@ -50,6 +53,7 @@ def _database() -> Iterator[None]:
     url = _test_database_url()
     os.environ["DATABASE_URL"] = url
     os.environ["APP_NOW"] = SEED_NOW.isoformat()
+    os.environ["APP_CLOCK"] = "frozen"
     config.get_settings.cache_clear()
     _ensure_database(url)
 
@@ -81,6 +85,24 @@ async def _clean_sessions(_seeded: None) -> AsyncIterator[None]:
 
 
 @pytest.fixture
+async def fresh_data() -> AsyncIterator[None]:
+    """Use in tests that write Scores, Issues, To-Dos or meetings: restores the seeded state afterwards.
+
+    List it before `session` in a test's parameters: fixtures tear down in reverse, and the reset's TRUNCATE
+    must not wait on that session's open transaction (lock_timeout turns such a mistake into an error).
+    """
+    from altri_api.live.hub import hub
+    from altri_api.seed import apply_seed, load_seed_file, reset_mutable_data
+
+    yield
+    async with db.get_sessionmaker()() as session, session.begin():
+        await session.execute(text("SET LOCAL lock_timeout = '5s'"))
+        await reset_mutable_data(session)
+        await apply_seed(session, load_seed_file(config.get_settings().seed_path))
+    assert not hub._subs, "a live subscription leaked out of a test"
+
+
+@pytest.fixture
 def set_now() -> Iterator[Callable[[datetime], None]]:
     settings = config.get_settings()
     original = settings.app_now
@@ -104,6 +126,13 @@ async def client() -> AsyncIterator[AsyncClient]:
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
+
+
+ADMIN = "avery@acme.test"  # u1, Admin, member of Leadership only
+MEMBER = "blake@acme.test"  # u2, Team Member in Leadership + Sales
+MEMBER_2 = "casey@acme.test"  # u3, Team Member in Leadership
+OBSERVER = "ellis@acme.test"  # u5, Observer in Leadership
+OPS_MEMBER = "harper@acme.test"  # u8, Team Member in Operations only
 
 
 async def login(client: AsyncClient, email: str) -> dict[str, str]:

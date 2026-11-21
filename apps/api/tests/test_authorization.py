@@ -78,8 +78,8 @@ async def test_requests_without_a_session_are_refused(client: AsyncClient) -> No
 
 
 # --- Write guard -----------------------------------------------------------------------------
-# No write endpoints exist yet, so the shared `WritableTeam` dependency is exercised on a probe route.
-# Every future write endpoint uses this same dependency.
+# The shared `WritableTeam` dependency, exercised in isolation on a probe route. Every write endpoint uses it;
+# the feature test modules check Observer and cross-team writes against the real endpoints too.
 
 _probe = FastAPI()
 

@@ -11,7 +11,9 @@
     "typecheck": "pnpm --filter web typecheck",
     "test:api": "pnpm --filter api test",
     "db:migrate": "pnpm --filter api migrate",
-    "db:seed": "pnpm --filter api seed"
+    "db:seed": "pnpm --filter api seed",
+    "db:reset": "pnpm --filter api reset",
+    "rules:report": "pnpm --filter api rules:report"
   },
   "packageManager": "pnpm@12.21.0"
 }
